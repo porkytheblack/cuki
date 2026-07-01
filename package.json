@@ -15,9 +15,10 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "bun run src/main.ts migrate",
-    "web:build": "cd web && bun run build",
-    "build:web": "cd web && bun install && bun run build && cp -r dist ../src/http/assets",
-    "build:binary": "bun build ./src/main.ts --compile --target bun --minify --outfile dist/cuki",
+    "gen:migrations": "bun run scripts/gen-migrations.ts",
+    "gen:assets": "bun run scripts/gen-assets.ts",
+    "build:web": "cd web && bun install && bun run build && cd .. && rm -rf src/http/assets && cp -r web/dist src/http/assets && bun run gen:assets",
+    "build:binary": "bun run gen:migrations && bun build ./src/main.ts --compile --target bun --minify --outfile dist/cuki",
     "build": "bun run build:web && bun run build:binary"
   },
   "dependencies": {
