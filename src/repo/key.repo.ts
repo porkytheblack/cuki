@@ -179,6 +179,33 @@ export class KeyRepo extends Effect.Service<KeyRepo>()("KeyRepo", {
           .select({ id: s.keys.id })
           .from(s.keys)
           .where(eq(s.keys.environmentId, environmentId)),
+
+      // ── KEK rotation ──
+
+      /** Sensitive versions wrapped by a given KEK version, with fields for re-wrapping. */
+      sensitiveVersionsByKek: (kekVersion: number) =>
+        db
+          .select({
+            versionId: s.keyVersions.id,
+            keyId: s.keyVersions.keyId,
+            environmentId: s.keys.environmentId,
+            version: s.keyVersions.version,
+            ciphertext: s.keyVersions.ciphertext,
+            nonce: s.keyVersions.nonce,
+            wrappedDek: s.keyVersions.wrappedDek,
+            dekNonce: s.keyVersions.dekNonce,
+            kekVersion: s.keyVersions.kekVersion,
+            aead: s.keyVersions.aead,
+          })
+          .from(s.keyVersions)
+          .innerJoin(s.keys, eq(s.keyVersions.keyId, s.keys.id))
+          .where(eq(s.keyVersions.kekVersion, kekVersion)),
+
+      updateWrap: (versionId: string, wrappedDek: Uint8Array, dekNonce: Uint8Array, kekVersion: number) =>
+        db
+          .update(s.keyVersions)
+          .set({ wrappedDek, dekNonce, kekVersion })
+          .where(eq(s.keyVersions.id, versionId)),
     }
   }),
 }) {}
