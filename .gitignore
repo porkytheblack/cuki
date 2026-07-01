@@ -20,3 +20,6 @@ src/http/assets/
 
 # test artifacts
 coverage/
+
+# scratch runners
+scripts/_*.ts

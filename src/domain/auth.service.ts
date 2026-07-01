@@ -2,6 +2,7 @@ import { Duration, Effect, Option } from "effect"
 import { AppConfig } from "../config"
 import { random, sha256Hash } from "../crypto/keys"
 import { hashPassword, verifyPassword } from "../crypto/password"
+import { catchConflict } from "../db/errors"
 import { Forbidden, Unauthorized, type Role } from "../errors"
 import { AccountRepo } from "../repo/account.repo"
 import { newId } from "../util/id"
@@ -30,6 +31,16 @@ export class AuthService extends Effect.Service<AuthService>()("AuthService", {
 
     return dieSqlApi({
       hashPassword: (pw: string) => Effect.sync(() => hashPassword(pw)),
+
+      /** Create a user (Argon2id hash); `Conflict` if the email is taken. */
+      register: (email: string, name: string, password: string) =>
+        Effect.gen(function* () {
+          const passwordHash = hashPassword(password)
+          const created = yield* accounts
+            .createUser({ id: newId(), email, name, passwordHash })
+            .pipe(catchConflict("email already registered"))
+          return Option.getOrThrow(created)
+        }),
 
       /** Verify email+password; returns the user or `Unauthorized` (generic, no user probing). */
       verifyCredentials: (email: string, password: string) =>

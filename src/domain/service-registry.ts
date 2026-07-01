@@ -31,6 +31,17 @@ export class ServiceRegistry extends Effect.Service<ServiceRegistry>()("ServiceR
     return dieSqlApi({
       getServiceOrFail,
 
+      /** Owning org (+ env + protected flag) for RBAC on a service. */
+      orgForServiceOrFail: (serviceId: string) =>
+        services.orgAndEnvForService(serviceId).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.fail(new NotFound({ resource: `service:${serviceId}` })),
+              onSome: Effect.succeed,
+            }),
+          ),
+        ),
+
       listForEnvironment: (environmentId: string) =>
         Effect.gen(function* () {
           const rows = yield* services.listByEnvironment(environmentId)
@@ -77,7 +88,22 @@ export class ServiceRegistry extends Effect.Service<ServiceRegistry>()("ServiceR
           const svc = yield* getServiceOrFail(serviceId)
           yield* services.updateStatus(svc.id, "revoked")
           yield* authState.revokeAllForService(svc.id, new Date()).pipe(Effect.ignore)
-          return { ...svc, status: "revoked" as const }
+          const grants = yield* services.countGrants(svc.id)
+          return { ...svc, status: "revoked" as const, grants }
+        }),
+
+      /** Owning org (+ env + protected) of a grant's service, for RBAC on grant deletion. */
+      orgForGrantOrFail: (grantId: string) =>
+        Effect.gen(function* () {
+          const grant = yield* services.findGrantById(grantId)
+          if (Option.isNone(grant)) {
+            return yield* Effect.fail(new NotFound({ resource: `grant:${grantId}` }))
+          }
+          const oe = yield* services.orgAndEnvForService(grant.value.serviceId)
+          if (Option.isNone(oe)) {
+            return yield* Effect.fail(new NotFound({ resource: `grant:${grantId}` }))
+          }
+          return oe.value
         }),
 
       delete: (serviceId: string) => Effect.as(services.delete(serviceId), undefined),

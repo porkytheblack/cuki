@@ -5,10 +5,11 @@ import { RepoLive } from "../repo"
 import { AuditService } from "./audit.service"
 import { AuthService } from "./auth.service"
 import { KeyService } from "./key.service"
+import { ManagementService } from "./management.service"
 import { ServiceRegistry } from "./service-registry"
 import { TokenService } from "./token.service"
 
-export { AuditService, AuthService, KeyService, ServiceRegistry, TokenService }
+export { AuditService, AuthService, KeyService, ManagementService, ServiceRegistry, TokenService }
 export { CryptoService, KekProvider }
 export * from "./context"
 
@@ -24,5 +25,6 @@ export const DomainLive = Layer.mergeAll(
   TokenService.Default,
   KeyService.Default,
   ServiceRegistry.Default,
+  ManagementService.Default,
   AuditService.Default,
 ).pipe(Layer.provideMerge(CryptoLive), Layer.provideMerge(RepoLive))

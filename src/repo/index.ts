@@ -10,7 +10,11 @@ import { ServiceRepo } from "./service.repo"
 
 export { AccountRepo, AuditRepo, AuthStateRepo, HierarchyRepo, KekVersionRepo, KeyRepo, ServiceRepo }
 
-/** All repositories, wired over the Drizzle/Postgres datastore (requires `AppConfig`). */
+/**
+ * All repositories, wired over the Drizzle/Postgres datastore (requires `AppConfig`).
+ * `DatabaseLive` is `provideMerge`d so `SqlClient` + the Drizzle client are also exposed —
+ * the migrator and boot sequence share the same pool.
+ */
 export const RepoLive = Layer.mergeAll(
   AccountRepo.Default,
   HierarchyRepo.Default,
@@ -19,4 +23,4 @@ export const RepoLive = Layer.mergeAll(
   AuthStateRepo.Default,
   AuditRepo.Default,
   KekVersionRepo.Default,
-).pipe(Layer.provide(DatabaseLive))
+).pipe(Layer.provideMerge(DatabaseLive))

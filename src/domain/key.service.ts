@@ -94,6 +94,17 @@ export class KeyService extends Effect.Service<KeyService>()("KeyService", {
           )
 
     return dieSqlApi({
+      /** Owning org (+ env + protected flag) for RBAC on a key. */
+      orgForKeyOrFail: (keyId: string) =>
+        keys.orgAndEnvForKey(keyId).pipe(
+          Effect.flatMap(
+            Option.match({
+              onNone: () => Effect.fail(new NotFound({ resource: `key:${keyId}` })),
+              onSome: Effect.succeed,
+            }),
+          ),
+        ),
+
       listForEnvironment: (environmentId: string) => keys.listWithCurrentByEnvironment(environmentId),
 
       get: (keyId: string) =>
