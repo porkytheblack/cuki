@@ -10,10 +10,23 @@ export const isUniqueViolation = (e: unknown): boolean => {
 }
 
 /**
- * Translate a unique-constraint violation into a domain `Conflict`; other SQL errors pass
- * through unchanged (mapped to 500 at the HTTP edge).
+ * Translate a unique-constraint violation into a domain `Conflict`; other errors pass through
+ * unchanged. Apply before `dieOnSql` so genuine conflicts survive and other SQL errors die.
  */
 export const catchConflict =
   (reason: string) =>
-  <A, R>(self: Effect.Effect<A, SqlError, R>): Effect.Effect<A, SqlError | Conflict, R> =>
+  <A, E, R>(self: Effect.Effect<A, E, R>): Effect.Effect<A, E | Conflict, R> =>
     Effect.catchIf(self, isUniqueViolation, () => Effect.fail(new Conflict({ reason })))
+
+/**
+ * DB errors are infra failures — turn any `SqlError` into a defect (→ 500 at the HTTP edge)
+ * so domain services keep clean, meaningful typed error channels.
+ */
+export const dieOnSql = <A, E, R>(
+  self: Effect.Effect<A, E, R>,
+): Effect.Effect<A, Exclude<E, SqlError>, R> =>
+  Effect.catchIf(
+    self,
+    (e): e is E & SqlError => (e as { _tag?: string })?._tag === "SqlError",
+    (e) => Effect.die(e),
+  ) as Effect.Effect<A, Exclude<E, SqlError>, R>

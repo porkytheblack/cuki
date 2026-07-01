@@ -1,5 +1,5 @@
 import { SqlClient } from "@effect/sql"
-import { and, eq, inArray } from "drizzle-orm"
+import { and, eq, inArray, max } from "drizzle-orm"
 import { Effect } from "effect"
 import { Database } from "../db/sql"
 import * as s from "../db/schema"
@@ -56,6 +56,34 @@ export class KeyRepo extends Effect.Service<KeyRepo>()("KeyRepo", {
 
       listByEnvironment: (environmentId: string) =>
         db.select().from(s.keys).where(eq(s.keys.environmentId, environmentId)),
+
+      /** Keys in an env joined to their current version (public value shown, sensitive null). */
+      listWithCurrentByEnvironment: (environmentId: string) =>
+        db
+          .select({
+            id: s.keys.id,
+            name: s.keys.name,
+            type: s.keys.type,
+            currentVersion: s.keys.currentVersion,
+            description: s.keys.description,
+            updatedAt: s.keys.updatedAt,
+            createdBy: s.keyVersions.createdBy,
+            plaintext: s.keyVersions.plaintext,
+          })
+          .from(s.keys)
+          .innerJoin(
+            s.keyVersions,
+            and(eq(s.keyVersions.keyId, s.keys.id), eq(s.keyVersions.version, s.keys.currentVersion)),
+          )
+          .where(eq(s.keys.environmentId, environmentId)),
+
+      /** Highest version number for a key (safe next-version after a rollback). */
+      maxVersion: (keyId: string) =>
+        db
+          .select({ v: max(s.keyVersions.version) })
+          .from(s.keyVersions)
+          .where(eq(s.keyVersions.keyId, keyId))
+          .pipe(Effect.map((rows) => rows[0]?.v ?? 0)),
 
       findById: (id: string) =>
         db.select().from(s.keys).where(eq(s.keys.id, id)).pipe(Effect.map(head)),

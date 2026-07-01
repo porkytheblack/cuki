@@ -9,6 +9,9 @@ export const bytesToUtf8 = (b: Uint8Array): string => dec.decode(b)
 export const toBase64 = (b: Uint8Array): string => Buffer.from(b).toString("base64")
 export const fromBase64 = (s: string): Uint8Array => new Uint8Array(Buffer.from(s, "base64"))
 
+export const toBase64Url = (b: Uint8Array): string => Buffer.from(b).toString("base64url")
+export const fromBase64Url = (s: string): Uint8Array => new Uint8Array(Buffer.from(s, "base64url"))
+
 export const toHex = (b: Uint8Array): string => Buffer.from(b).toString("hex")
 export const fromHex = (s: string): Uint8Array => new Uint8Array(Buffer.from(s, "hex"))
 
