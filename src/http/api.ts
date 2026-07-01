@@ -104,14 +104,16 @@ const managementGroup = HttpApiGroup.make("management")
       .setPayload(S.UpdateMemberRequest)
       .addSuccess(S.MemberDto)
       .addError(E.Forbidden)
-      .addError(E.NotFound),
+      .addError(E.NotFound)
+      .addError(E.Conflict),
   )
   .add(
     HttpApiEndpoint.del("removeMember", "/v1/orgs/:orgId/members/:id")
       .setPath(OrgMemberParam)
       .addSuccess(NoContent, { status: 204 })
       .addError(E.Forbidden)
-      .addError(E.NotFound),
+      .addError(E.NotFound)
+      .addError(E.Conflict),
   )
   // projects
   .add(
@@ -174,8 +176,7 @@ const managementGroup = HttpApiGroup.make("management")
       .addSuccess(S.KeyMetaDto)
       .addError(E.Forbidden)
       .addError(E.NotFound)
-      .addError(E.Conflict)
-      .addError(E.CryptoError),
+      .addError(E.Conflict),
   )
   .add(
     HttpApiEndpoint.get("getKey", "/v1/keys/:id")
@@ -191,7 +192,7 @@ const managementGroup = HttpApiGroup.make("management")
       .addSuccess(S.KeyMetaDto)
       .addError(E.Forbidden)
       .addError(E.NotFound)
-      .addError(E.CryptoError),
+      .addError(E.Conflict),
   )
   .add(
     HttpApiEndpoint.del("deleteKey", "/v1/keys/:id")
@@ -205,8 +206,7 @@ const managementGroup = HttpApiGroup.make("management")
       .setPath(IdParam)
       .addSuccess(S.RevealDto)
       .addError(E.Forbidden)
-      .addError(E.NotFound)
-      .addError(E.CryptoError),
+      .addError(E.NotFound),
   )
   .add(
     HttpApiEndpoint.post("rollbackKey", "/v1/keys/:id/rollback")
@@ -312,15 +312,13 @@ const retrievalGroup = HttpApiGroup.make("retrieval")
   .add(
     HttpApiEndpoint.get("secrets", "/v1/secrets")
       .addSuccess(S.SealedEnvelopeDto)
-      .addError(E.NotFound)
-      .addError(E.CryptoError),
+      .addError(E.NotFound),
   )
   .add(
     HttpApiEndpoint.get("secretByName", "/v1/secrets/:name")
       .setPath(NameParam)
       .addSuccess(S.SealedEnvelopeDto)
-      .addError(E.NotFound)
-      .addError(E.CryptoError),
+      .addError(E.NotFound),
   )
   .middleware(ServiceTokenAuth)
 

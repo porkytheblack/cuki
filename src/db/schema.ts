@@ -186,7 +186,10 @@ export const challenges = pgTable(
     consumedAt: ts("consumed_at"), // single-use
     createdAt: ts("created_at").notNull().defaultNow(),
   },
-  (t) => [index("challenges_service_exp_idx").on(t.serviceId, t.expiresAt)],
+  (t) => [
+    index("challenges_service_exp_idx").on(t.serviceId, t.expiresAt),
+    index("challenges_exp_idx").on(t.expiresAt),
+  ],
 )
 
 export const accessTokens = pgTable(
@@ -203,7 +206,10 @@ export const accessTokens = pgTable(
     issuedIp: text("issued_ip"),
     createdAt: ts("created_at").notNull().defaultNow(),
   },
-  (t) => [index("access_tokens_service_idx").on(t.serviceId)],
+  (t) => [
+    index("access_tokens_service_idx").on(t.serviceId),
+    index("access_tokens_exp_idx").on(t.expiresAt),
+  ],
 )
 
 // ── Audit ──────────────────────────────────────────────────────────────────────
@@ -235,15 +241,19 @@ export const auditLogs = pgTable(
 
 // ── User sessions (management plane) ───────────────────────────────────────────
 
-export const sessions = pgTable("sessions", {
-  id: text("id").primaryKey(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  tokenHash: bytea("token_hash").notNull().unique(), // hash of the session cookie value
-  expiresAt: ts("expires_at").notNull(),
-  createdAt: ts("created_at").notNull().defaultNow(),
-})
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: bytea("token_hash").notNull().unique(), // hash of the session cookie value
+    expiresAt: ts("expires_at").notNull(),
+    createdAt: ts("created_at").notNull().defaultNow(),
+  },
+  (t) => [index("sessions_exp_idx").on(t.expiresAt)],
+)
 
 // ── KEK registry (metadata only — never the key itself) ────────────────────────
 

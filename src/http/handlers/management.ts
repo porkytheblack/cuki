@@ -6,8 +6,8 @@ import { CurrentUser } from "../../domain/context"
 import { KeyService } from "../../domain/key.service"
 import { ManagementService } from "../../domain/management.service"
 import { ServiceRegistry } from "../../domain/service-registry"
-import { NotFound } from "../../errors"
-import type { Key, Service } from "../../db/schema"
+import { Conflict, NotFound } from "../../errors"
+import type { Key, Membership, Service } from "../../db/schema"
 import { api } from "../api"
 import { clientMeta } from "../req"
 
@@ -95,21 +95,36 @@ export const ManagementGroupLive = HttpApiBuilder.group(api, "management", (hand
         auth.authorize(path.orgId, "viewer").pipe(Effect.andThen(mgmt.listMembers(path.orgId))),
       )
       .handle("addMember", ({ path, payload }) =>
-        auth
-          .authorize(path.orgId, "admin")
-          .pipe(Effect.andThen(mgmt.addMember(path.orgId, payload.email, payload.role))),
+        Effect.gen(function* () {
+          yield* auth.authorize(path.orgId, "admin")
+          // Only an owner may grant the owner role (prevents admin self-escalation).
+          if (payload.role === "owner") yield* auth.authorize(path.orgId, "owner")
+          return yield* mgmt.addMember(path.orgId, payload.email, payload.role)
+        }),
       )
       .handle("updateMember", ({ path, payload }) =>
         Effect.gen(function* () {
           yield* auth.authorize(path.orgId, "admin")
-          yield* assertMemberInOrg(mgmt, path.orgId, path.id)
+          const target = yield* memberInOrg(mgmt, path.orgId, path.id)
+          // Touching an owner (promoting to, or changing) requires owner.
+          if (target.role === "owner" || payload.role === "owner") {
+            yield* auth.authorize(path.orgId, "owner")
+          }
+          // Never demote the last owner.
+          if (target.role === "owner" && payload.role !== "owner") {
+            yield* assertNotLastOwner(mgmt, path.orgId)
+          }
           return yield* mgmt.updateMember(path.id, payload.role)
         }),
       )
       .handle("removeMember", ({ path }) =>
         Effect.gen(function* () {
           yield* auth.authorize(path.orgId, "admin")
-          yield* assertMemberInOrg(mgmt, path.orgId, path.id)
+          const target = yield* memberInOrg(mgmt, path.orgId, path.id)
+          if (target.role === "owner") {
+            yield* auth.authorize(path.orgId, "owner")
+            yield* assertNotLastOwner(mgmt, path.orgId)
+          }
           yield* mgmt.removeMember(path.id)
         }),
       )
@@ -175,11 +190,13 @@ export const ManagementGroupLive = HttpApiBuilder.group(api, "management", (hand
           const oe = yield* mgmt.orgForEnvironmentOrFail(path.id)
           yield* authorizeWrite(oe.orgId, env.protected)
           const cu = yield* CurrentUser
-          const key = yield* keys.create(
-            path.id,
-            { name: payload.name, type: payload.type, value: payload.value, description: payload.description },
-            cu.user.id,
-          )
+          const key = yield* keys
+            .create(
+              path.id,
+              { name: payload.name, type: payload.type, value: payload.value, description: payload.description },
+              cu.user.id,
+            )
+            .pipe(Effect.catchTag("CryptoError", (e) => Effect.die(e)))
           yield* recordWrite(oe.orgId, "key.write", "key", key.id, path.id)
           return keyRowToMeta(key)
         }),
@@ -197,7 +214,9 @@ export const ManagementGroupLive = HttpApiBuilder.group(api, "management", (hand
           const oe = yield* keys.orgForKeyOrFail(path.id)
           yield* authorizeWrite(oe.orgId, oe.protected)
           const cu = yield* CurrentUser
-          const key = yield* keys.setValue(path.id, payload.value, cu.user.id)
+          const key = yield* keys
+            .setValue(path.id, payload.value, cu.user.id)
+            .pipe(Effect.catchTag("CryptoError", (e) => Effect.die(e)))
           yield* recordWrite(oe.orgId, "key.write", "key", key.id, oe.environmentId)
           return keyRowToMeta(key)
         }),
@@ -214,7 +233,9 @@ export const ManagementGroupLive = HttpApiBuilder.group(api, "management", (hand
         Effect.gen(function* () {
           const oe = yield* keys.orgForKeyOrFail(path.id)
           yield* auth.authorize(oe.orgId, "admin")
-          const value = yield* keys.reveal(path.id)
+          const value = yield* keys
+            .reveal(path.id)
+            .pipe(Effect.catchTag("CryptoError", (e) => Effect.die(e)))
           yield* recordWrite(oe.orgId, "secret.reveal", "key", path.id, oe.environmentId)
           return { value }
         }),
@@ -293,7 +314,8 @@ export const ManagementGroupLive = HttpApiBuilder.group(api, "management", (hand
       .handle("addGrants", ({ path, payload }) =>
         Effect.gen(function* () {
           const oe = yield* registry.orgForServiceOrFail(path.id)
-          yield* auth.authorize(oe.orgId, "member")
+          // Granting a service access to a protected env's secrets is a protected-env write.
+          yield* authorizeWrite(oe.orgId, oe.protected)
           const cu = yield* CurrentUser
           const grants = yield* registry.addGrants(path.id, payload.keyIds, cu.user.id)
           yield* recordWrite(oe.orgId, "grant.add", "service", path.id, oe.environmentId)
@@ -350,16 +372,26 @@ export const ManagementGroupLive = HttpApiBuilder.group(api, "management", (hand
   }),
 )
 
-/** Guard: a member id must belong to the org in the path (prevents cross-org edits). */
-const assertMemberInOrg = (mgmt: ManagementService, orgId: string, memberId: string) =>
-  mgmt.memberOrgId(memberId).pipe(
+/** Guard: resolve a member that must belong to the org in the path (prevents cross-org edits). */
+const memberInOrg = (
+  mgmt: ManagementService,
+  orgId: string,
+  memberId: string,
+): Effect.Effect<Membership, NotFound> =>
+  mgmt.getMembership(memberId).pipe(
     Effect.flatMap(
       Option.match({
         onNone: () => Effect.fail(new NotFound({ resource: `member:${memberId}` })),
-        onSome: (oid) =>
-          oid === orgId
-            ? Effect.void
-            : Effect.fail(new NotFound({ resource: `member:${memberId}` })),
+        onSome: (m) =>
+          m.orgId === orgId ? Effect.succeed(m) : Effect.fail(new NotFound({ resource: `member:${memberId}` })),
       }),
+    ),
+  )
+
+/** Guard: refuse an operation that would leave the org with zero owners. */
+const assertNotLastOwner = (mgmt: ManagementService, orgId: string): Effect.Effect<void, Conflict> =>
+  mgmt.countOwners(orgId).pipe(
+    Effect.flatMap((n) =>
+      n <= 1 ? Effect.fail(new Conflict({ reason: "cannot remove or demote the last owner" })) : Effect.void,
     ),
   )

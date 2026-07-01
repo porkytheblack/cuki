@@ -3,6 +3,7 @@ import {
   HttpApiScalar,
   HttpMiddleware,
   HttpServerRequest,
+  HttpServerResponse,
 } from "@effect/platform"
 import { BunHttpServer } from "@effect/platform-bun"
 import { Effect, Layer } from "effect"
@@ -24,16 +25,24 @@ const ApiLive = HttpApiBuilder.api(api).pipe(
  * Wrap the API app: health endpoints, then delegate `/v1` + API docs to the API router,
  * else serve the embedded SPA (with client-routing fallback). Design 08.
  */
+/** Baseline hardening headers applied to every response (design: defense in depth). */
+const SECURITY_HEADERS = {
+  "x-content-type-options": "nosniff",
+  "x-frame-options": "DENY",
+  "referrer-policy": "no-referrer",
+} as const
+
 const withExtras = HttpMiddleware.make((app) =>
   Effect.gen(function* () {
     const req = yield* HttpServerRequest.HttpServerRequest
     const path = req.url.split("?")[0] ?? "/"
-    if (path === "/healthz") return yield* healthz
-    if (path === "/readyz") return yield* readyz
-    if (path.startsWith("/v1") || path.startsWith("/docs") || path.startsWith("/openapi")) {
-      return yield* app
-    }
-    return yield* serveStatic(path)
+    let res
+    if (path === "/healthz") res = yield* healthz
+    else if (path === "/readyz") res = yield* readyz
+    else if (path.startsWith("/v1") || path.startsWith("/docs") || path.startsWith("/openapi")) {
+      res = yield* app
+    } else res = yield* serveStatic(path)
+    return HttpServerResponse.setHeaders(res, SECURITY_HEADERS)
   }),
 )
 

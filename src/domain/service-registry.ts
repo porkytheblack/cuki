@@ -1,4 +1,5 @@
 import { Effect, Option } from "effect"
+import { catchConflict } from "../db/errors"
 import { generateServiceKeypair } from "../crypto/keys"
 import { Conflict, NotFound } from "../errors"
 import { AuthStateRepo } from "../repo/authstate.repo"
@@ -124,9 +125,10 @@ export class ServiceRegistry extends Effect.Service<ServiceRegistry>()("ServiceR
           }
           const existing = new Set(yield* services.keyIdsForService(svc.id))
           const toAdd = validKeyIds.filter((k) => !existing.has(k))
-          yield* services.addGrants(
-            toAdd.map((keyId) => ({ id: newId(), serviceId: svc.id, keyId, createdBy: userId })),
-          )
+          yield* services
+            .addGrants(toAdd.map((keyId) => ({ id: newId(), serviceId: svc.id, keyId, createdBy: userId })))
+            // A concurrent identical grant would violate grants_service_key_uq → 409, not 500.
+            .pipe(catchConflict("a concurrent request already created one of these grants"))
           return yield* services.listGrants(svc.id)
         }),
 

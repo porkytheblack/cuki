@@ -49,12 +49,26 @@ const durationConfig = (name: string, def: Duration.Duration) =>
     Config.withDefault(def),
   )
 
-/** host:port → { host, port }. */
+/** host:port → { host, port }. Handles bracketed IPv6 (`[::1]:8787`) and bare IPv6. */
 const parseAddr = (addr: string): { host: string; port: number } => {
-  const idx = addr.lastIndexOf(":")
-  if (idx < 0) return { host: addr, port: 8787 }
-  const host = addr.slice(0, idx) || "0.0.0.0"
-  const port = Number(addr.slice(idx + 1))
+  const s = addr.trim()
+  // Bracketed IPv6: [host]:port or [host]
+  if (s.startsWith("[")) {
+    const close = s.indexOf("]")
+    if (close > 0) {
+      const host = s.slice(1, close)
+      const rest = s.slice(close + 1)
+      const port = rest.startsWith(":") ? Number(rest.slice(1)) : 8787
+      return { host, port: Number.isFinite(port) ? port : 8787 }
+    }
+  }
+  const colons = (s.match(/:/g) || []).length
+  // Bare IPv6 with no port (more than one colon and not bracketed) → whole string is the host.
+  if (colons > 1) return { host: s, port: 8787 }
+  if (colons === 0) return { host: s || "0.0.0.0", port: 8787 }
+  const idx = s.lastIndexOf(":")
+  const host = s.slice(0, idx) || "0.0.0.0"
+  const port = Number(s.slice(idx + 1))
   return { host, port: Number.isFinite(port) ? port : 8787 }
 }
 
@@ -95,8 +109,13 @@ export class AppConfig extends Effect.Service<AppConfig>()("AppConfig", {
 
     const logLevel = yield* Config.string("CUKI_LOG").pipe(Config.withDefault("info"))
 
+    // Only trust X-Forwarded-For when a header-stripping reverse proxy sits in front;
+    // otherwise clients could spoof the source IP used for service IP allowlists + audit.
+    const trustProxy = yield* Config.boolean("CUKI_TRUST_PROXY").pipe(Config.withDefault(false))
+
     return {
       addr: { host, port },
+      trustProxy,
       db: { url: databaseUrl, poolSize: dbPool },
       kek: {
         provider: kekProvider,
@@ -119,6 +138,7 @@ export class AppConfig extends Effect.Service<AppConfig>()("AppConfig", {
         challengeTtl: Duration.format(challengeTtl),
         sessionTtl: Duration.format(sessionTtl),
         tls: Option.isSome(tlsCert),
+        trustProxy,
         logLevel,
         dbUrl: Redacted.value(databaseUrl).replace(/\/\/[^@]*@/, "//***@"),
       }),

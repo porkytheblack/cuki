@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 import { spawn } from "node:child_process"
+import os from "node:os"
 import { Args, Command, Options } from "@effect/cli"
 import { BunContext, BunRuntime } from "@effect/platform-bun"
 import { Console, Effect, Layer, Logger, Option } from "effect"
@@ -108,7 +109,14 @@ const run = Command.make(
       const secrets = yield* fromPromise(() => cuki.getAll())
       const filtered = Option.match(onlyList, {
         onNone: () => secrets,
-        onSome: (list) => Object.fromEntries(list.map((k) => [k, secrets[k] ?? ""])),
+        onSome: (list) => {
+          const out: Record<string, string> = {}
+          for (const k of list) {
+            if (Object.prototype.hasOwnProperty.call(secrets, k)) out[k] = secrets[k]!
+            else console.error(`cuki: warning — requested key not granted, skipping: ${k}`)
+          }
+          return out
+        },
       })
       const [cmd, ...rest] = command
       const code = yield* Effect.async<number>((resume) => {
@@ -116,7 +124,10 @@ const run = Command.make(
           stdio: "inherit",
           env: { ...process.env, ...filtered },
         })
-        child.on("exit", (c) => resume(Effect.succeed(c ?? 0)))
+        // Propagate the child's exit faithfully: signal death -> 128 + signum (shell convention).
+        child.on("exit", (c, signal) =>
+          resume(Effect.succeed(signal ? 128 + (os.constants.signals[signal] ?? 0) : (c ?? 0))),
+        )
         child.on("error", (e) => resume(Effect.die(e)))
       })
       yield* Effect.sync(() => process.exit(code))

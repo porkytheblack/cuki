@@ -55,9 +55,9 @@ export class TokenService extends Effect.Service<TokenService>()("TokenService",
           const nonce = random(CHALLENGE_NONCE_BYTES)
           const challengeId = newId()
           const expiresAt = new Date(Date.now() + Duration.toMillis(cfg.ttl.challenge))
-          yield* authState
-            .createChallenge({ id: challengeId, serviceId: svc.id, nonce, expiresAt })
-            .pipe(Effect.mapError(() => new ChallengeInvalid({ code: "unknown_service" })))
+          // A DB write failure here is infra, not an auth failure — let it surface as 500
+          // (dieSqlApi) rather than a misleading "unknown_service" 401.
+          yield* authState.createChallenge({ id: challengeId, serviceId: svc.id, nonce, expiresAt })
           return { challengeId, nonce, expiresAt }
         }),
 
@@ -93,25 +93,23 @@ export class TokenService extends Effect.Service<TokenService>()("TokenService",
             .pipe(Effect.catchAll(() => Effect.succeed(Option.none())))
           if (Option.isNone(consumed)) return yield* fail("challenge_consumed")
 
-          const scopeKeyIds = yield* services
-            .keyIdsForService(svc.id)
-            .pipe(Effect.catchAll(() => Effect.succeed([] as string[])))
+          // Fail closed: a DB error here must abort issuance (dieSqlApi -> 500), not mint a
+          // useless empty-scope token. A genuinely grant-less service still yields [].
+          const scopeKeyIds = yield* services.keyIdsForService(svc.id)
 
           const raw = random(TOKEN_BYTES)
           const accessToken = toBase64Url(raw)
           const tokenHash = sha256Hash(raw)
           const tokenId = newId()
           const expiresAt = new Date(Date.now() + Duration.toMillis(cfg.ttl.token))
-          yield* authState
-            .createToken({
-              id: tokenId,
-              serviceId: svc.id,
-              tokenHash,
-              scopeKeyIds: [...scopeKeyIds],
-              expiresAt,
-              issuedIp: ip,
-            })
-            .pipe(Effect.mapError(() => new ChallengeInvalid({ code: "unknown_service" })))
+          yield* authState.createToken({
+            id: tokenId,
+            serviceId: svc.id,
+            tokenHash,
+            scopeKeyIds: [...scopeKeyIds],
+            expiresAt,
+            issuedIp: ip,
+          })
           yield* services.updateLastAuth(svc.id, new Date()).pipe(Effect.ignore)
 
           return {

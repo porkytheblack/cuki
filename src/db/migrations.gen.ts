@@ -53,5 +53,13 @@ export const migrations: ReadonlyArray<EmbeddedMigration> = [
       "CREATE UNIQUE INDEX \"memberships_org_user_uq\" ON \"memberships\" USING btree (\"org_id\",\"user_id\");",
       "CREATE UNIQUE INDEX \"projects_org_slug_uq\" ON \"projects\" USING btree (\"org_id\",\"slug\");"
     ]
+  },
+  {
+    "tag": "0001_sweep_indexes",
+    "statements": [
+      "CREATE INDEX \"access_tokens_exp_idx\" ON \"access_tokens\" USING btree (\"expires_at\");",
+      "CREATE INDEX \"challenges_exp_idx\" ON \"challenges\" USING btree (\"expires_at\");",
+      "CREATE INDEX \"sessions_exp_idx\" ON \"sessions\" USING btree (\"expires_at\");"
+    ]
   }
 ]

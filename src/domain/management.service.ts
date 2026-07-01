@@ -90,6 +90,11 @@ export class ManagementService extends Effect.Service<ManagementService>()("Mana
       memberOrgId: (memberId: string) =>
         accounts.findMembershipById(memberId).pipe(Effect.map(Option.map((m) => m.orgId))),
 
+      /** The full membership row (for cross-org + owner-protection checks in handlers). */
+      getMembership: (memberId: string) => accounts.findMembershipById(memberId),
+
+      countOwners: (orgId: string) => accounts.countOwners(orgId),
+
       // ── projects ──
       listProjects: (orgId: string) => hier.listProjectsByOrg(orgId),
 

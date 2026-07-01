@@ -157,7 +157,12 @@ export class KeyService extends Effect.Service<KeyService>()("KeyService", {
             value,
             userId,
           )
-          yield* keys.addVersion(keyId, version, next)
+          // The version number is part of the AEAD AAD, so it must be fixed before encryption;
+          // a concurrent setValue racing on the same key hits key_versions_key_version_uq. The
+          // unique index prevents corruption; surface the race as a retryable 409, not a 500.
+          yield* keys
+            .addVersion(keyId, version, next)
+            .pipe(catchConflict("a concurrent update created a new version; please retry"))
           return yield* getKeyOrFail(keyId)
         }),
 

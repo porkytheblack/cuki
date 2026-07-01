@@ -17,11 +17,9 @@ export const RetrievalGroupLive = HttpApiBuilder.group(api, "retrieval", (handle
         Effect.gen(function* () {
           const cur = yield* CurrentService
           const meta = yield* clientMeta
-          const result = yield* keys.readForService(
-            cur.service.serviceId,
-            cur.service.encPublicKey,
-            cur.scopeKeyIds,
-          )
+          const result = yield* keys
+            .readForService(cur.service.serviceId, cur.service.encPublicKey, cur.scopeKeyIds)
+            .pipe(Effect.catchTag("CryptoError", (e) => Effect.die(e)))
           yield* audit.record({
             orgId: cur.orgId,
             actorType: "service",
@@ -56,6 +54,7 @@ export const RetrievalGroupLive = HttpApiBuilder.group(api, "retrieval", (handle
                   metadata: { name: path.name, tokenId: cur.tokenId },
                 }),
               ),
+              Effect.catchTag("CryptoError", (e) => Effect.die(e)),
             )
           yield* audit.record({
             orgId: cur.orgId,

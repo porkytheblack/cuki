@@ -70,6 +70,13 @@ export class AccountRepo extends Effect.Service<AccountRepo>()("AccountRepo", {
       findMembershipById: (id: string) =>
         db.select().from(s.memberships).where(eq(s.memberships.id, id)).pipe(Effect.map(head)),
 
+      countOwners: (orgId: string) =>
+        db
+          .select({ id: s.memberships.id })
+          .from(s.memberships)
+          .where(and(eq(s.memberships.orgId, orgId), eq(s.memberships.role, "owner")))
+          .pipe(Effect.map((rows) => rows.length)),
+
       listMembers: (orgId: string) =>
         db
           .select({
