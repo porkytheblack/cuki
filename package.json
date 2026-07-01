@@ -1,0 +1,49 @@
+{
+  "name": "cuki",
+  "version": "0.1.0",
+  "description": "A self-hosted secrets & config management service — API, dashboard, and client in one binary.",
+  "type": "module",
+  "license": "MIT",
+  "bin": {
+    "cuki": "./dist/cuki"
+  },
+  "scripts": {
+    "dev": "bun run src/main.ts serve",
+    "start": "bun run src/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun run src/main.ts migrate",
+    "web:build": "cd web && bun run build",
+    "build:web": "cd web && bun install && bun run build && cp -r dist ../src/http/assets",
+    "build:binary": "bun build ./src/main.ts --compile --target bun --minify --outfile dist/cuki",
+    "build": "bun run build:web && bun run build:binary"
+  },
+  "dependencies": {
+    "@effect/cli": "^0.75.2",
+    "@effect/platform": "^0.96.2",
+    "@effect/platform-bun": "^0.90.0",
+    "@effect/platform-node": "^0.107.0",
+    "@effect/sql": "^0.51.1",
+    "@effect/sql-drizzle": "^0.50.0",
+    "@effect/sql-pg": "^0.52.1",
+    "@hpke/chacha20poly1305": "^1.8.0",
+    "@hpke/core": "^1.9.0",
+    "@hpke/dhkem-x25519": "^1.8.0",
+    "@noble/ciphers": "^2.2.0",
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
+    "drizzle-orm": "^0.45.2",
+    "effect": "^3.21.4",
+    "postgres": "^3.4.9",
+    "ulidx": "^2.4.1"
+  },
+  "devDependencies": {
+    "@effect/vitest": "^0.29.0",
+    "@types/node": "^26.0.1",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "^6.0.3",
+    "vitest": "^3.2.0"
+  }
+}
