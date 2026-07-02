@@ -1,0 +1,25 @@
+node_modules/
+dist/
+*.log
+
+# local dev
+.env
+.env.local
+cuki.toml
+cuki.svc
+*.local
+
+# embedded build output (generated from web/dist)
+src/http/assets/
+
+# editor / os
+.DS_Store
+.idea/
+.vscode/
+*.tsbuildinfo
+
+# test artifacts
+coverage/
+
+# scratch runners
+scripts/_*.ts
