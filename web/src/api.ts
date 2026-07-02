@@ -40,11 +40,27 @@ export class ApiError extends Error {
   }
 }
 
+const readCookie = (name: string): string | undefined =>
+  document.cookie
+    .split(";")
+    .map((c) => c.trim())
+    .find((c) => c.startsWith(name + "="))
+    ?.slice(name.length + 1)
+
+const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"])
+
 async function req<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const headers: Record<string, string> = {}
+  if (body !== undefined) headers["content-type"] = "application/json"
+  // Double-submit CSRF: echo the readable csrf cookie on state-changing requests.
+  if (MUTATING.has(method)) {
+    const csrf = readCookie("cuki_csrf")
+    if (csrf) headers["x-csrf-token"] = decodeURIComponent(csrf)
+  }
   const res = await fetch(path, {
     method,
     credentials: "include",
-    headers: body !== undefined ? { "content-type": "application/json" } : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
     body: body !== undefined ? JSON.stringify(body) : undefined,
   })
   if (res.status === 204) return undefined as T

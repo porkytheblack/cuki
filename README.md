@@ -83,9 +83,21 @@ Precedence: CLI flags > env > config file > defaults. Secrets are loaded redacte
 | `CUKI_CHALLENGE_TTL` | `30s` | challenge TTL |
 | `CUKI_SESSION_TTL` | `7d` | dashboard session TTL |
 | `CUKI_LOG` | `info` | log level |
+| `CUKI_COOKIE_INSECURE` | `false` | set `true` to drop the cookie `Secure` flag for local HTTP dev |
+| `CUKI_TRUST_PROXY` | `false` | honor `X-Forwarded-For` (only behind a header-stripping proxy) |
+| `CUKI_CSRF` | `true` | double-submit CSRF for cookie-authed mutating requests |
+| `CUKI_ENABLE_DOCS` | `false` | expose `/docs` + OpenAPI |
+| `CUKI_RATE_LIMIT` | `true` | rate-limit `challenge`/`token` per IP + service, with lockout |
 
-**Back up the KEK separately from the database.** A DB backup without the KEK cannot reveal
-sensitive values (by design); losing the KEK is unrecoverable.
+Rate-limit tuning (all optional): `CUKI_RATE_WINDOW` (`1m`), `CUKI_RATE_CHALLENGE_IP` (`30`),
+`CUKI_RATE_CHALLENGE_SVC` (`20`), `CUKI_RATE_TOKEN_IP` (`60`), `CUKI_RATE_LOCKOUT_AFTER` (`5`),
+`CUKI_RATE_LOCKOUT_BASE` (`2s`), `CUKI_RATE_LOCKOUT_MAX` (`15m`). The limiter is in-memory and
+per-instance (best-effort under horizontal scaling); front with a shared limiter for hard
+guarantees.
+
+**Cookies are `Secure` by default** — over plain HTTP (local dev) set `CUKI_COOKIE_INSECURE=true`
+or the browser will drop the session. **Back up the KEK separately from the database.** A DB
+backup without the KEK cannot reveal sensitive values (by design); losing the KEK is unrecoverable.
 
 ### KEK rotation
 

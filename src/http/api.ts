@@ -14,6 +14,8 @@ import * as S from "./schemas"
 /** Security schemes: session cookie (management), bearer access token (retrieval). */
 export const sessionCookie = HttpApiSecurity.apiKey({ in: "cookie", key: "cuki_session" })
 export const serviceBearer = HttpApiSecurity.bearer
+/** Double-submit CSRF cookie (readable by JS; echoed in X-CSRF-Token on mutating requests). */
+export const csrfCookie = HttpApiSecurity.apiKey({ in: "cookie", key: "cuki_csrf" })
 
 /** Resolves `CurrentUser` from the session cookie (design 05). */
 export class SessionAuth extends HttpApiMiddleware.Tag<SessionAuth>()("cuki/SessionAuth", {
@@ -63,13 +65,15 @@ const authGroup = HttpApiGroup.make("auth")
     HttpApiEndpoint.post("challenge", "/v1/auth/challenge")
       .setPayload(S.ChallengeRequest)
       .addSuccess(S.ChallengeDto)
-      .addError(E.Unauthorized),
+      .addError(E.Unauthorized)
+      .addError(E.RateLimited),
   )
   .add(
     HttpApiEndpoint.post("token", "/v1/auth/token")
       .setPayload(S.TokenRequest)
       .addSuccess(S.TokenDto)
-      .addError(E.Unauthorized),
+      .addError(E.Unauthorized)
+      .addError(E.RateLimited),
   )
 
 // ── management group (SessionAuth) ──

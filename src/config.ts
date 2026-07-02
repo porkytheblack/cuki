@@ -113,9 +113,45 @@ export class AppConfig extends Effect.Service<AppConfig>()("AppConfig", {
     // otherwise clients could spoof the source IP used for service IP allowlists + audit.
     const trustProxy = yield* Config.boolean("CUKI_TRUST_PROXY").pipe(Config.withDefault(false))
 
+    // ── Web security ──
+    // Session/CSRF cookies are Secure by default (HTTPS-only). Set CUKI_COOKIE_INSECURE=true
+    // for local HTTP dev, or when TLS is terminated in a way that hides it from the app.
+    const cookieInsecure = yield* Config.boolean("CUKI_COOKIE_INSECURE").pipe(Config.withDefault(false))
+    // Double-submit CSRF for cookie-authenticated mutating requests (design 05 hardening).
+    const csrfEnabled = yield* Config.boolean("CUKI_CSRF").pipe(Config.withDefault(true))
+    // API docs (/docs, /openapi.json) are off by default — opt in explicitly.
+    const docsEnabled = yield* Config.boolean("CUKI_ENABLE_DOCS").pipe(Config.withDefault(false))
+
+    // ── Retrieval-plane rate limiting (design 04 abuse controls) ──
+    const rateLimitEnabled = yield* Config.boolean("CUKI_RATE_LIMIT").pipe(Config.withDefault(true))
+    // Per-window request caps, keyed by source IP and by service handle, sliding window.
+    const rlWindow = yield* durationConfig("CUKI_RATE_WINDOW", Duration.minutes(1))
+    const rlChallengePerIp = yield* Config.integer("CUKI_RATE_CHALLENGE_IP").pipe(Config.withDefault(30))
+    const rlChallengePerSvc = yield* Config.integer("CUKI_RATE_CHALLENGE_SVC").pipe(Config.withDefault(20))
+    const rlTokenPerIp = yield* Config.integer("CUKI_RATE_TOKEN_IP").pipe(Config.withDefault(60))
+    // Consecutive auth failures before a temporary, exponentially-backed-off lockout.
+    const rlLockoutThreshold = yield* Config.integer("CUKI_RATE_LOCKOUT_AFTER").pipe(Config.withDefault(5))
+    const rlLockoutBase = yield* durationConfig("CUKI_RATE_LOCKOUT_BASE", Duration.seconds(2))
+    const rlLockoutMax = yield* durationConfig("CUKI_RATE_LOCKOUT_MAX", Duration.minutes(15))
+
     return {
       addr: { host, port },
       trustProxy,
+      security: {
+        cookieSecure: !cookieInsecure,
+        csrfEnabled,
+        docsEnabled,
+      },
+      rateLimit: {
+        enabled: rateLimitEnabled,
+        windowMs: Duration.toMillis(rlWindow),
+        challengePerIp: rlChallengePerIp,
+        challengePerSvc: rlChallengePerSvc,
+        tokenPerIp: rlTokenPerIp,
+        lockoutThreshold: rlLockoutThreshold,
+        lockoutBaseMs: Duration.toMillis(rlLockoutBase),
+        lockoutMaxMs: Duration.toMillis(rlLockoutMax),
+      },
       db: { url: databaseUrl, poolSize: dbPool },
       kek: {
         provider: kekProvider,
@@ -139,6 +175,10 @@ export class AppConfig extends Effect.Service<AppConfig>()("AppConfig", {
         sessionTtl: Duration.format(sessionTtl),
         tls: Option.isSome(tlsCert),
         trustProxy,
+        cookieSecure: !cookieInsecure,
+        csrf: csrfEnabled,
+        docs: docsEnabled,
+        rateLimit: rateLimitEnabled,
         logLevel,
         dbUrl: Redacted.value(databaseUrl).replace(/\/\/[^@]*@/, "//***@"),
       }),
