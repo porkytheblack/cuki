@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { api, type KeyMeta, type KeyType, type Role } from "../api"
-import { Copy, Drawer, fmtDate, useAsync } from "../ui"
+import { useConfirm, useToast } from "../feedback"
+import { Copy, Drawer, EmptyState, SkeletonTable, fmtDate, useAsync } from "../ui"
 
 const rank: Record<Role, number> = { viewer: 0, member: 1, admin: 2, owner: 3 }
 const REVEAL_TTL_MS = 30_000
@@ -10,88 +11,103 @@ export function KeysView({ envId, role, envProtected }: { envId: string; role: R
   const [create, setCreate] = useState(false)
   const [detail, setDetail] = useState<KeyMeta | null>(null)
   const [revealed, setRevealed] = useState<{ id: string; value: string } | null>(null)
-  const [revealErr, setRevealErr] = useState<string>()
   const hideTimer = useRef<number | undefined>(undefined)
+  const toast = useToast()
 
   const clearReveal = () => {
     if (hideTimer.current) window.clearTimeout(hideTimer.current)
     setRevealed(null)
   }
-  const doReveal = async (id: string) => {
-    setRevealErr(undefined)
+  const doReveal = async (id: string, name: string) => {
     try {
       const r = await api.revealKey(id)
       setRevealed({ id, value: r.value })
       if (hideTimer.current) window.clearTimeout(hideTimer.current)
-      // Don't leave plaintext on screen indefinitely — auto-hide after a short window.
       hideTimer.current = window.setTimeout(() => setRevealed(null), REVEAL_TTL_MS)
+      toast.info(`Revealed ${name} — auto-hides in 30s (this was audited)`)
     } catch (e: any) {
-      setRevealErr(e?.message ?? "reveal failed")
+      toast.error(e?.message ?? "reveal failed")
     }
   }
-  // Clear any revealed secret + timer when leaving this environment/view.
   useEffect(() => () => { if (hideTimer.current) window.clearTimeout(hideTimer.current) }, [])
-  useEffect(() => { clearReveal(); setRevealErr(undefined) }, [envId])
+  useEffect(() => { clearReveal() }, [envId])
 
   const canWrite = rank[role] >= 1 && (!envProtected || rank[role] >= 2)
   const canReveal = rank[role] >= 2
 
   return (
     <div>
-      <div className="spread" style={{ marginBottom: 16 }}>
-        <div className="muted mono" style={{ fontSize: 12 }}>{data?.length ?? 0} keys</div>
+      <div className="section-head">
+        <div className="muted mono small">{data ? `${data.length} ${data.length === 1 ? "key" : "keys"}` : ""}</div>
         {canWrite && <button className="primary" onClick={() => setCreate(true)}>+ New key</button>}
       </div>
-      {error && <div className="err">{error}</div>}
-      {revealErr && <div className="err">{revealErr}</div>}
+      {error && <div className="errbox">{error}</div>}
+
       {loading ? (
-        <div className="empty"><span className="spin" /></div>
+        <SkeletonTable rows={4} cols={5} />
       ) : data && data.length > 0 ? (
-        <table>
-          <thead>
-            <tr>
-              <th>name</th><th>type</th><th>version</th><th>value</th><th>updated</th><th className="right">actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((k) => (
-              <tr key={k.id}>
-                <td className="mono">{k.name}</td>
-                <td><span className={"chip " + (k.type === "sensitive" ? "" : "accent")}>{k.type}</span></td>
-                <td className="mono">v{k.currentVersion}</td>
-                <td className="data" style={{ maxWidth: 260, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {k.type === "public" ? (k.value ?? "") : (
-                    revealed?.id === k.id ? <span style={{ color: "var(--warn)" }}>{revealed.value}</span> : "••••••••"
-                  )}
-                </td>
-                <td className="mono muted">{fmtDate(k.updatedAt)}</td>
-                <td className="right">
-                  <div className="row" style={{ justifyContent: "flex-end" }}>
-                    {k.type === "sensitive" && canReveal && (
-                      revealed?.id === k.id
-                        ? <button className="sm ghost" onClick={clearReveal}>hide</button>
-                        : <button className="sm ghost" onClick={() => doReveal(k.id)}>reveal</button>
-                    )}
-                    <button className="sm ghost" onClick={() => setDetail(k)}>manage</button>
-                  </div>
-                </td>
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>name</th><th>type</th><th>version</th><th>value</th><th>updated</th><th className="right">actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.map((k) => (
+                <tr key={k.id}>
+                  <td className="mono" style={{ fontWeight: 500 }}>{k.name}</td>
+                  <td><span className={"chip dot " + (k.type === "sensitive" ? "" : "accent")}>{k.type}</span></td>
+                  <td className="mono muted">v{k.currentVersion}</td>
+                  <td className="data" style={{ maxWidth: 300, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {k.type === "public"
+                      ? (k.value ?? <span className="dim">—</span>)
+                      : revealed?.id === k.id
+                        ? <span style={{ color: "var(--warn)" }}>{revealed.value}</span>
+                        : <span className="dim">••••••••••</span>}
+                  </td>
+                  <td className="mono muted">{fmtDate(k.updatedAt)}</td>
+                  <td>
+                    <div className="rowactions">
+                      {k.type === "sensitive" && canReveal && (
+                        revealed?.id === k.id
+                          ? <button className="sm ghost" onClick={clearReveal}>hide</button>
+                          : <button className="sm ghost" onClick={() => doReveal(k.id, k.name)}>reveal</button>
+                      )}
+                      <button className="sm ghost" onClick={() => setDetail(k)}>manage</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
-        <div className="empty">no keys yet — create your first key</div>
+        <EmptyState
+          emoji="🔑"
+          title="No keys in this environment yet"
+          hint="Add config and secrets here, then grant them to a service."
+          action={canWrite ? <button className="primary" onClick={() => setCreate(true)}>+ New key</button> : undefined}
+        />
       )}
 
       {create && (
-        <CreateKeyDrawer envId={envId} onClose={() => setCreate(false)} onDone={() => { setCreate(false); reload() }} />
+        <CreateKeyDrawer
+          envId={envId}
+          onClose={() => setCreate(false)}
+          onDone={(name) => {
+            setCreate(false)
+            reload()
+            toast.success(`Key “${name}” created`)
+          }}
+        />
       )}
       {detail && (
         <KeyDetailDrawer
           keyMeta={detail}
           canWrite={canWrite}
           onClose={() => setDetail(null)}
-          onChanged={() => { reload() }}
+          onChanged={reload}
           onDeleted={() => { setDetail(null); reload() }}
         />
       )}
@@ -99,7 +115,7 @@ export function KeysView({ envId, role, envProtected }: { envId: string; role: R
   )
 }
 
-function CreateKeyDrawer({ envId, onClose, onDone }: { envId: string; onClose: () => void; onDone: () => void }) {
+function CreateKeyDrawer({ envId, onClose, onDone }: { envId: string; onClose: () => void; onDone: (name: string) => void }) {
   const [name, setName] = useState("")
   const [type, setType] = useState<KeyType>("sensitive")
   const [value, setValue] = useState("")
@@ -108,41 +124,49 @@ function CreateKeyDrawer({ envId, onClose, onDone }: { envId: string; onClose: (
   const [err, setErr] = useState<string>()
 
   const submit = async () => {
+    if (!name || !value) return
     setBusy(true); setErr(undefined)
     try {
       await api.createKey(envId, { name, type, value, description: description || undefined })
-      onDone()
+      onDone(name)
     } catch (e: any) { setErr(e.message); setBusy(false) }
   }
 
   return (
-    <Drawer title="New key" onClose={onClose}>
+    <Drawer title="New key" desc="Config is stored in plaintext; secrets are encrypted at rest." onClose={onClose}>
+      {err && <div className="errbox">{err}</div>}
       <div className="field">
-        <label>name</label>
-        <input className="mono" value={name} onChange={(e) => setName(e.target.value.toUpperCase())} placeholder="DATABASE_URL" />
+        <label>Name</label>
+        <input
+          className="mono"
+          value={name}
+          onChange={(e) => setName(e.target.value.replace(/\s+/g, "_").toUpperCase())}
+          placeholder="DATABASE_URL"
+        />
       </div>
       <div className="field">
-        <label>type</label>
-        <div className="row">
-          <button className={type === "sensitive" ? "primary" : ""} onClick={() => setType("sensitive")}>sensitive</button>
-          <button className={type === "public" ? "primary" : ""} onClick={() => setType("public")}>public (config)</button>
+        <label>Type</label>
+        <div className="segmented">
+          <button className={type === "sensitive" ? "on" : ""} onClick={() => setType("sensitive")}>sensitive</button>
+          <button className={type === "public" ? "on" : ""} onClick={() => setType("public")}>public / config</button>
         </div>
-        <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
-          {type === "sensitive" ? "encrypted at rest; masked in the dashboard." : "stored plaintext, visible in the dashboard."}
+        <div className="hint">
+          {type === "sensitive"
+            ? "Encrypted at rest, masked in the dashboard, delivered sealed to services."
+            : "Stored in plaintext and visible in the dashboard."}
         </div>
       </div>
       <div className="field">
-        <label>value</label>
-        <textarea className="mono" rows={3} value={value} onChange={(e) => setValue(e.target.value)} />
+        <label>Value</label>
+        <textarea className="mono" rows={3} value={value} onChange={(e) => setValue(e.target.value)} placeholder="postgres://…" />
       </div>
       <div className="field">
-        <label>description (optional)</label>
-        <input value={description} onChange={(e) => setDescription(e.target.value)} />
+        <label>Description <span className="dim">(optional)</span></label>
+        <input value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Primary database connection string" />
       </div>
-      {err && <div className="err">{err}</div>}
-      <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="ghost" onClick={onClose}>cancel</button>
-        <button className="primary" disabled={busy || !name || !value} onClick={submit}>{busy ? "creating…" : "create key"}</button>
+      <div className="overlay-foot">
+        <button className="ghost" onClick={onClose}>Cancel</button>
+        <button className="primary" disabled={busy || !name || !value} onClick={submit}>{busy ? "Creating…" : "Create key"}</button>
       </div>
     </Drawer>
   )
@@ -154,68 +178,87 @@ function KeyDetailDrawer({ keyMeta, canWrite, onClose, onChanged, onDeleted }: {
   const detail = useAsync(() => api.getKey(keyMeta.id), [keyMeta.id])
   const [newValue, setNewValue] = useState("")
   const [busy, setBusy] = useState(false)
-  const [err, setErr] = useState<string>()
+  const toast = useToast()
+  const confirm = useConfirm()
 
   const setValue = async () => {
-    setBusy(true); setErr(undefined)
-    try { await api.setKeyValue(keyMeta.id, newValue); setNewValue(""); detail.reload(); onChanged() }
-    catch (e: any) { setErr(e.message) } finally { setBusy(false) }
+    if (!newValue) return
+    setBusy(true)
+    try {
+      await api.setKeyValue(keyMeta.id, newValue)
+      setNewValue("")
+      detail.reload()
+      onChanged()
+      toast.success(`New version saved for ${keyMeta.name}`)
+    } catch (e: any) { toast.error(e.message) } finally { setBusy(false) }
   }
   const rollback = async (v: number) => {
-    if (!confirm(`Roll back ${keyMeta.name} to v${v}?`)) return
-    try { await api.rollbackKey(keyMeta.id, v); detail.reload(); onChanged() } catch (e: any) { setErr(e.message) }
+    if (!(await confirm({ title: "Roll back key", message: <>Point <b>{keyMeta.name}</b> back to <span className="mono">v{v}</span>? This creates the active value from that version.</>, confirmLabel: `Roll back to v${v}` }))) return
+    try { await api.rollbackKey(keyMeta.id, v); detail.reload(); onChanged(); toast.success(`Rolled back to v${v}`) }
+    catch (e: any) { toast.error(e.message) }
   }
   const del = async () => {
-    if (!confirm(`Delete ${keyMeta.name}? This cannot be undone.`)) return
-    try { await api.deleteKey(keyMeta.id); onDeleted() } catch (e: any) { setErr(e.message) }
+    if (!(await confirm({ title: "Delete key", message: <>Permanently delete <b>{keyMeta.name}</b> and all its versions? This cannot be undone.</>, confirmLabel: "Delete key", danger: true }))) return
+    try { await api.deleteKey(keyMeta.id); onDeleted(); toast.success(`Deleted ${keyMeta.name}`) }
+    catch (e: any) { toast.error(e.message) }
   }
 
   return (
     <Drawer title={keyMeta.name} onClose={onClose}>
-      <div className="row" style={{ marginBottom: 16 }}>
-        <span className={"chip " + (keyMeta.type === "public" ? "accent" : "")}>{keyMeta.type}</span>
+      <div className="row" style={{ marginBottom: 20 }}>
+        <span className={"chip dot " + (keyMeta.type === "public" ? "accent" : "")}>{keyMeta.type}</span>
         <span className="chip mono">v{keyMeta.currentVersion}</span>
+        <span className="grow" />
+        <span className="muted mono small">id <Copy text={keyMeta.id} label={keyMeta.id.slice(0, 10) + "…"} /></span>
       </div>
-      {err && <div className="err">{err}</div>}
 
       {canWrite && (
         <div className="field">
-          <label>set new value (creates a version)</label>
-          <textarea className="mono" rows={2} value={newValue} onChange={(e) => setNewValue(e.target.value)} />
+          <label>Set new value <span className="dim">(creates a version)</span></label>
+          <textarea className="mono" rows={2} value={newValue} onChange={(e) => setNewValue(e.target.value)} placeholder="new value…" />
           <div className="row" style={{ justifyContent: "flex-end", marginTop: 8 }}>
-            <button className="primary sm" disabled={busy || !newValue} onClick={setValue}>save version</button>
+            <button className="primary sm" disabled={busy || !newValue} onClick={setValue}>{busy ? "Saving…" : "Save version"}</button>
           </div>
         </div>
       )}
 
       <hr className="sep" />
-      <label>version history</label>
-      <table>
-        <thead><tr><th>version</th><th>created</th><th className="right"></th></tr></thead>
-        <tbody>
-          {detail.data?.versions.map((v) => (
-            <tr key={v.version}>
-              <td className="mono">{v.version === keyMeta.currentVersion ? <b>v{v.version} (current)</b> : `v${v.version}`}</td>
-              <td className="mono muted">{fmtDate(v.createdAt)}</td>
-              <td className="right">
-                {canWrite && v.version !== keyMeta.currentVersion && (
-                  <button className="sm ghost" onClick={() => rollback(v.version)}>rollback</button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <label>Version history</label>
+      {detail.loading ? (
+        <div className="loading"><span className="spin" /></div>
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>version</th><th>created</th><th className="right"></th></tr></thead>
+            <tbody>
+              {detail.data?.versions.map((v) => (
+                <tr key={v.version}>
+                  <td className="mono">
+                    {v.version === keyMeta.currentVersion
+                      ? <span style={{ color: "var(--accent)" }}>v{v.version} · current</span>
+                      : `v${v.version}`}
+                  </td>
+                  <td className="mono muted">{fmtDate(v.createdAt)}</td>
+                  <td>
+                    <div className="rowactions">
+                      {canWrite && v.version !== keyMeta.currentVersion && (
+                        <button className="sm ghost" onClick={() => rollback(v.version)}>rollback</button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {canWrite && (
         <>
           <hr className="sep" />
-          <button className="danger" onClick={del}>delete key</button>
+          <button className="danger" onClick={del}>Delete key</button>
         </>
       )}
-      <div style={{ marginTop: 12 }} className="muted mono">
-        id <Copy text={keyMeta.id} label={keyMeta.id.slice(0, 10) + "…"} />
-      </div>
     </Drawer>
   )
 }

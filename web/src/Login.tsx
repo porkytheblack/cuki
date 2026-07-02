@@ -11,42 +11,52 @@ export function Login({ onAuthed }: { onAuthed: (me: Me) => void }) {
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setBusy(true); setErr(undefined)
+    setBusy(true)
+    setErr(undefined)
     try {
-      const me = mode === "login"
-        ? await api.login({ email, password })
-        : await api.register({ email, name, password })
+      const me = mode === "login" ? await api.login({ email, password }) : await api.register({ email, name, password })
       onAuthed(me)
     } catch (er: any) {
-      setErr(er.message ?? "failed"); setBusy(false)
+      setErr(er?.message ?? "Something went wrong")
+      setBusy(false)
     }
   }
 
   return (
-    <div className="center-screen">
+    <div className="login-wrap">
       <div className="card login-card">
-        <div className="brand" style={{ border: "none", padding: 0, marginBottom: 24 }}>
+        <div className="row" style={{ marginBottom: 6 }}>
           <div className="brand-mark" />
           <div className="brand-name" style={{ fontSize: 20 }}>cuki</div>
         </div>
-        <div className="muted" style={{ marginBottom: 20, fontSize: 13 }}>secrets &amp; config, self-hosted</div>
+        <div className="muted" style={{ marginBottom: 24, fontSize: 13 }}>secrets &amp; config, self-hosted</div>
+
+        <div className="segmented" style={{ marginBottom: 20, width: "100%" }}>
+          <button className={"block " + (mode === "login" ? "on" : "")} onClick={() => { setMode("login"); setErr(undefined) }}>Sign in</button>
+          <button className={"block " + (mode === "register" ? "on" : "")} onClick={() => { setMode("register"); setErr(undefined) }}>Create account</button>
+        </div>
+
         <form onSubmit={submit}>
           {mode === "register" && (
-            <div className="field"><label>name</label><input value={name} onChange={(e) => setName(e.target.value)} required /></div>
+            <div className="field">
+              <label>Name</label>
+              <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Ada Lovelace" required />
+            </div>
           )}
-          <div className="field"><label>email</label><input className="mono" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></div>
-          <div className="field"><label>password</label><input className="mono" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} /></div>
-          {err && <div className="err">{err}</div>}
-          <button className="primary" style={{ width: "100%" }} disabled={busy} type="submit">
-            {busy ? "…" : mode === "login" ? "sign in" : "create account"}
+          <div className="field">
+            <label>Email</label>
+            <input className="mono" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@company.com" required />
+          </div>
+          <div className="field">
+            <label>Password</label>
+            <input className="mono" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required minLength={8} />
+            {mode === "register" && <div className="hint">At least 8 characters.</div>}
+          </div>
+          {err && <div className="errbox">{err}</div>}
+          <button className="primary block" disabled={busy} type="submit" style={{ marginTop: 4 }}>
+            {busy ? <span className="spin" /> : mode === "login" ? "Sign in" : "Create account"}
           </button>
         </form>
-        <div style={{ marginTop: 16, textAlign: "center", fontSize: 13 }} className="muted">
-          {mode === "login" ? "no account?" : "have an account?"}{" "}
-          <a onClick={() => { setMode(mode === "login" ? "register" : "login"); setErr(undefined) }} style={{ cursor: "pointer" }}>
-            {mode === "login" ? "register" : "sign in"}
-          </a>
-        </div>
       </div>
     </div>
   )

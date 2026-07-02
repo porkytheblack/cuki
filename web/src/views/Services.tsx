@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { api, type KeyMeta, type Role, type Service, type ServiceCreated } from "../api"
-import { Copy, Drawer, Modal, relTime, useAsync } from "../ui"
+import { useConfirm, useToast } from "../feedback"
+import { Copy, Drawer, EmptyState, Modal, SkeletonTable, relTime, useAsync } from "../ui"
 
 const rank: Record<Role, number> = { viewer: 0, member: 1, admin: 2, owner: 3 }
 
@@ -9,56 +10,63 @@ export function ServicesView({ envId, role, serverOrigin }: { envId: string; rol
   const [create, setCreate] = useState(false)
   const [created, setCreated] = useState<ServiceCreated | null>(null)
   const [manage, setManage] = useState<Service | null>(null)
+  const toast = useToast()
 
   const canWrite = rank[role] >= 1
   const canAdmin = rank[role] >= 2
 
   return (
     <div>
-      <div className="spread" style={{ marginBottom: 16 }}>
-        <div className="muted mono" style={{ fontSize: 12 }}>{data?.length ?? 0} services</div>
+      <div className="section-head">
+        <div className="muted mono small">{data ? `${data.length} ${data.length === 1 ? "service" : "services"}` : ""}</div>
         {canWrite && <button className="primary" onClick={() => setCreate(true)}>+ New service</button>}
       </div>
-      {error && <div className="err">{error}</div>}
+      {error && <div className="errbox">{error}</div>}
+
       {loading ? (
-        <div className="empty"><span className="spin" /></div>
+        <SkeletonTable rows={3} cols={5} />
       ) : data && data.length > 0 ? (
-        <table>
-          <thead><tr><th>name</th><th>service_id</th><th>status</th><th>last auth</th><th>grants</th><th className="right"></th></tr></thead>
-          <tbody>
-            {data.map((s) => (
-              <tr key={s.id}>
-                <td className="mono">{s.name}</td>
-                <td className="data">{s.serviceId}</td>
-                <td><span className={"chip " + (s.status === "active" ? "ok" : "danger")}>{s.status}</span></td>
-                <td className="mono muted">{relTime(s.lastAuthAt)}</td>
-                <td className="mono">{s.grants}</td>
-                <td className="right"><button className="sm ghost" onClick={() => setManage(s)}>manage</button></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>name</th><th>service_id</th><th>status</th><th>last auth</th><th>grants</th><th className="right"></th></tr></thead>
+            <tbody>
+              {data.map((s) => (
+                <tr key={s.id}>
+                  <td className="mono" style={{ fontWeight: 500 }}>{s.name}</td>
+                  <td className="data muted">{s.serviceId}</td>
+                  <td><span className={"chip dot " + (s.status === "active" ? "ok" : "danger")}>{s.status}</span></td>
+                  <td className="mono muted">{relTime(s.lastAuthAt)}</td>
+                  <td className="mono">{s.grants}</td>
+                  <td><div className="rowactions"><button className="sm ghost" onClick={() => setManage(s)}>manage</button></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       ) : (
-        <div className="empty">no services — create one to let a workload read secrets</div>
+        <EmptyState
+          emoji="◆"
+          title="No services yet"
+          hint="Create a service identity so a workload can fetch its granted secrets."
+          action={canWrite ? <button className="primary" onClick={() => setCreate(true)}>+ New service</button> : undefined}
+        />
       )}
 
       {create && (
         <CreateServiceDrawer
           envId={envId}
           onClose={() => setCreate(false)}
-          onCreated={(c) => { setCreate(false); setCreated(c); reload() }}
+          onCreated={(c) => { setCreate(false); setCreated(c); reload(); toast.success(`Service “${c.service.name}” created`) }}
         />
       )}
-      {created && (
-        <CredentialModal created={created} serverOrigin={serverOrigin} onClose={() => setCreated(null)} />
-      )}
+      {created && <CredentialModal created={created} serverOrigin={serverOrigin} onClose={() => setCreated(null)} />}
       {manage && (
         <ManageServiceDrawer
           svc={manage}
           envId={envId}
           canAdmin={canAdmin}
           onClose={() => setManage(null)}
-          onChanged={() => reload()}
+          onChanged={reload}
           onRotated={(pk) => setCreated({ service: manage, privateKey: pk })}
         />
       )}
@@ -74,6 +82,7 @@ function CreateServiceDrawer({ envId, onClose, onCreated }: {
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
   const submit = async () => {
+    if (!name) return
     setBusy(true); setErr(undefined)
     try {
       const cidrs = allow.split(",").map((s) => s.trim()).filter(Boolean)
@@ -81,13 +90,20 @@ function CreateServiceDrawer({ envId, onClose, onCreated }: {
     } catch (e: any) { setErr(e.message); setBusy(false) }
   }
   return (
-    <Drawer title="New service" onClose={onClose}>
-      <div className="field"><label>name</label><input className="mono" value={name} onChange={(e) => setName(e.target.value)} placeholder="api" /></div>
-      <div className="field"><label>ip allowlist (optional, comma CIDRs)</label><input className="mono" value={allow} onChange={(e) => setAllow(e.target.value)} placeholder="10.0.0.0/8, 127.0.0.1" /></div>
-      {err && <div className="err">{err}</div>}
-      <div className="row" style={{ justifyContent: "flex-end" }}>
-        <button className="ghost" onClick={onClose}>cancel</button>
-        <button className="primary" disabled={busy || !name} onClick={submit}>{busy ? "creating…" : "create service"}</button>
+    <Drawer title="New service" desc="Generates an Ed25519 identity; the private key is shown once." onClose={onClose}>
+      {err && <div className="errbox">{err}</div>}
+      <div className="field">
+        <label>Name</label>
+        <input className="mono" value={name} onChange={(e) => setName(e.target.value)} placeholder="api" onKeyDown={(e) => e.key === "Enter" && submit()} />
+      </div>
+      <div className="field">
+        <label>IP allowlist <span className="dim">(optional, comma-separated CIDRs)</span></label>
+        <input className="mono" value={allow} onChange={(e) => setAllow(e.target.value)} placeholder="10.0.0.0/8, 127.0.0.1" />
+        <div className="hint">Restricts where this service may authenticate from.</div>
+      </div>
+      <div className="overlay-foot">
+        <button className="ghost" onClick={onClose}>Cancel</button>
+        <button className="primary" disabled={busy || !name} onClick={submit}>{busy ? "Creating…" : "Create service"}</button>
       </div>
     </Drawer>
   )
@@ -108,8 +124,14 @@ function CredentialModal({ created, serverOrigin, onClose }: {
   const envSnippet = `CUKI_URL=${serverOrigin}\nCUKI_SERVICE_ID=${service.serviceId}\nCUKI_PRIVATE_KEY=${privateKey}`
   const runSnippet = `cuki run --creds cuki.svc -- your-app`
   return (
-    <Modal title="Service credentials" onClose={onClose} wide>
-      <div className="warnbox">⚠ The private key is shown once and never again. Store it now — cuki does not keep a copy.</div>
+    <Modal
+      title="Service credentials"
+      desc="Save these now — the private key is never shown again."
+      onClose={onClose}
+      wide
+      footer={<button className="primary" onClick={onClose}>I've saved it</button>}
+    >
+      <div className="warnbox">⚠ The private key is shown once and never again. cuki keeps only the public key.</div>
       <div className="field">
         <label>service_id</label>
         <div className="row"><code className="codeblock grow">{service.serviceId}</code><Copy text={service.serviceId} /></div>
@@ -119,18 +141,16 @@ function CredentialModal({ created, serverOrigin, onClose }: {
         <div className="row"><code className="codeblock grow">{privateKey}</code><Copy text={privateKey} /></div>
       </div>
       <div className="row" style={{ marginBottom: 16 }}>
-        <button onClick={download}>⬇ download cuki.svc</button>
+        <button onClick={download}>⬇ Download cuki.svc</button>
       </div>
       <div className="field">
-        <label>environment variables</label>
-        <code className="codeblock">{envSnippet}</code>
-        <div className="right"><Copy text={envSnippet} label="copy env" /></div>
+        <div className="spread"><label style={{ marginBottom: 0 }}>Environment variables</label><Copy text={envSnippet} label="copy" /></div>
+        <code className="codeblock" style={{ marginTop: 6 }}>{envSnippet}</code>
       </div>
-      <div className="field">
-        <label>run your app with injected secrets</label>
+      <div className="field" style={{ marginBottom: 0 }}>
+        <label>Run your app with injected secrets</label>
         <code className="codeblock">{runSnippet}</code>
       </div>
-      <div className="right"><button className="primary" onClick={onClose}>I've saved it</button></div>
     </Modal>
   )
 }
@@ -141,74 +161,81 @@ function ManageServiceDrawer({ svc, envId, canAdmin, onClose, onChanged, onRotat
   const grants = useAsync(() => api.listGrants(svc.id), [svc.id])
   const keys = useAsync(() => api.listKeys(envId), [envId])
   const activity = useAsync(() => api.serviceActivity(svc.id), [svc.id])
-  const [err, setErr] = useState<string>()
+  const toast = useToast()
+  const confirm = useConfirm()
 
   const grantedIds = new Set(grants.data?.map((g) => g.keyId))
   const ungranted = (keys.data ?? []).filter((k: KeyMeta) => !grantedIds.has(k.id))
 
-  const addGrant = async (keyId: string) => {
-    try { await api.addGrants(svc.id, [keyId]); grants.reload(); onChanged() } catch (e: any) { setErr(e.message) }
+  const addGrant = async (keyId: string, name: string) => {
+    try { await api.addGrants(svc.id, [keyId]); grants.reload(); onChanged(); toast.success(`Granted ${name}`) }
+    catch (e: any) { toast.error(e.message) }
   }
-  const removeGrant = async (id: string) => {
-    try { await api.deleteGrant(id); grants.reload(); onChanged() } catch (e: any) { setErr(e.message) }
+  const removeGrant = async (id: string, name: string) => {
+    try { await api.deleteGrant(id); grants.reload(); onChanged(); toast.info(`Removed grant for ${name}`) }
+    catch (e: any) { toast.error(e.message) }
   }
 
   return (
     <Drawer title={svc.name} onClose={onClose}>
-      <div className="row" style={{ marginBottom: 12 }}>
-        <span className={"chip " + (svc.status === "active" ? "ok" : "danger")}>{svc.status}</span>
-        <span className="data muted">{svc.serviceId}</span>
+      <div className="row" style={{ marginBottom: 20 }}>
+        <span className={"chip dot " + (svc.status === "active" ? "ok" : "danger")}>{svc.status}</span>
+        <span className="grow" />
+        <span className="data muted small">{svc.serviceId}<Copy text={svc.serviceId} label="⧉" /></span>
       </div>
-      {err && <div className="err">{err}</div>}
 
-      <label>granted keys</label>
-      <div className="row wrap" style={{ marginBottom: 12 }}>
+      <label>Granted keys</label>
+      <div className="row wrap" style={{ marginBottom: 14 }}>
         {grants.data?.length ? grants.data.map((g) => (
-          <span key={g.id} className="chip removable" onClick={() => removeGrant(g.id)} title="remove grant">
+          <span key={g.id} className="chip removable" onClick={() => removeGrant(g.id, g.keyName)} title="remove grant">
             {g.keyName} ✕
           </span>
-        )) : <span className="dim mono" style={{ fontSize: 12 }}>none</span>}
+        )) : <span className="dim mono small">no grants yet</span>}
       </div>
       {ungranted.length > 0 && (
         <div className="field">
-          <label>grant a key</label>
+          <label>Grant a key</label>
           <div className="row wrap">
             {ungranted.map((k) => (
-              <button key={k.id} className="sm" onClick={() => addGrant(k.id)}>+ {k.name}</button>
+              <button key={k.id} className="sm" onClick={() => addGrant(k.id, k.name)}>+ {k.name}</button>
             ))}
           </div>
         </div>
       )}
 
       <hr className="sep" />
-      <label>recent activity</label>
-      {activity.data?.length ? (
-        <table>
-          <thead><tr><th>action</th><th>result</th><th>when</th></tr></thead>
-          <tbody>
-            {activity.data.slice(0, 8).map((a) => (
-              <tr key={a.id}>
-                <td className="mono">{a.action}</td>
-                <td><span className={"chip " + (a.result === "success" ? "ok" : "danger")}>{a.result}</span></td>
-                <td className="mono muted">{relTime(a.createdAt)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      ) : <div className="dim mono" style={{ fontSize: 12 }}>no reads yet</div>}
+      <label>Recent activity</label>
+      {activity.loading ? (
+        <div className="loading"><span className="spin" /></div>
+      ) : activity.data?.length ? (
+        <div className="table-wrap">
+          <table>
+            <thead><tr><th>action</th><th>result</th><th>when</th></tr></thead>
+            <tbody>
+              {activity.data.slice(0, 8).map((a) => (
+                <tr key={a.id}>
+                  <td className="mono">{a.action}</td>
+                  <td><span className={"chip dot " + (a.result === "success" ? "ok" : "danger")}>{a.result}</span></td>
+                  <td className="mono muted">{relTime(a.createdAt)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <div className="dim mono small">no reads yet</div>}
 
       {canAdmin && svc.status === "active" && (
         <>
           <hr className="sep" />
           <div className="row wrap">
             <button onClick={async () => {
-              if (!confirm("Rotate the key? The old private key stops working.")) return
-              try { const r = await api.rotateServiceKey(svc.id); onRotated(r.privateKey) } catch (e: any) { setErr(e.message) }
-            }}>rotate key</button>
+              if (!(await confirm({ title: "Rotate key", message: <>Generate a new keypair for <b>{svc.name}</b>? The current private key stops working immediately.</>, confirmLabel: "Rotate key" }))) return
+              try { const r = await api.rotateServiceKey(svc.id); onRotated(r.privateKey); toast.success("Key rotated — save the new credentials") } catch (e: any) { toast.error(e.message) }
+            }}>Rotate key</button>
             <button className="danger" onClick={async () => {
-              if (!confirm("Revoke this service? All its tokens are invalidated immediately.")) return
-              try { await api.revokeService(svc.id); onChanged(); onClose() } catch (e: any) { setErr(e.message) }
-            }}>revoke</button>
+              if (!(await confirm({ title: "Revoke service", message: <>Revoke <b>{svc.name}</b>? All its access tokens are invalidated immediately and it can no longer authenticate.</>, confirmLabel: "Revoke", danger: true }))) return
+              try { await api.revokeService(svc.id); onChanged(); onClose(); toast.success(`Revoked ${svc.name}`) } catch (e: any) { toast.error(e.message) }
+            }}>Revoke</button>
           </div>
         </>
       )}
